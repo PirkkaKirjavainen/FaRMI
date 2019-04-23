@@ -1,0 +1,310 @@
+Scripts to reproduce FaRM-index
+######Combined original and rescheduled samples for one bacteria pipeline and one fungal pipeline#####
+
+########################## BACTERIA ##########################
+â€” 8,786,280 reads put in
+##uses the split_libraries_fastq command to convert from fastq to fasta with quality filtering while definding sample names for each sample: resequenced individuals were given the suffix â€oeRâ€•. Because the command was done per sample, a dummy mapping file was used. ##
+sh script_for_split.sh
+##combine the sequences##
+cat bact_slout_q20/slout_single_sample_q20_16s*/seqs.fna > final_demultiplexed_seqs_16S.fasta
+â€” 8,603,888 after demultiplexing and quality control
+##identify (using usearch wrapped within QIIME) then exlucde chimeras##
+identify_chimeric_seqs.py -i final_demultiplexed_seqs_16S.fasta -m usearch61 -o bact_usearch_checked_chimeras/ -r /macqiime/greengenes/gg_13_8_otus/rep_set/97_otus.fasta
+filter_fasta.py -f final_demultiplexed_seqs_16S.fasta -o final_chimeric_rmv_seqs_16S.fasta -s bact_usearch_checked_chimeras/chimeras.txt -n
+(117,675 chimeras)
+â€” 8,486,213 sequences after chimera checking
+##cluster sequences into OTUs, first by closed-reference against the greengenes database then by de novo clustering at 100% subsampling ##
+pick_open_reference_otus.py -i final_chimeric_rmv_seqs_16S.fasta -r /macqiime/greengenes/gg_13_8_otus/rep_set/97_otus.fasta -o bact_open_ref_picked_otus -a -O 4 --percent_subsample 1
+â€” 8,352,907 in (no pynast failures) biom table
+â€” 38263 OTUs
+## filter OTUs less than 0.001% of total sequences
+filter_otus_from_otu_table.py -i bact_open_ref_picked_otus/otu_table_mc2_w_tax_no_pynast_failures.biom -o bact_otu_table_mc2_w_tax_no_pynast_failures_min00001.biom --min_count_fraction 0.00001
+â€” 8352907.0 83.52907
+â€” 4363 OTUs
+## looking at unassigned sequences (n=17), they mostly BLAST to other uncultured bacterium; given their low number and their likelihood of being undescribed bacteria, they were left in.
+## remove all chloroplasts/mitochondria then all empty OTUs
+filter_taxa_from_otu_table.py -i bact_otu_table_mc2_w_tax_no_pynast_failures_min00001.biom -o bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro.biom -n c__Chloroplast,f__mitochondria
+(confirmed those sequences were removed)
+(grep -o 'Chloroplast' bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro.biom | wc -l)
+0
+(grep -o 'mitochondria' bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro.biom | wc -l)
+0
+filter_otus_from_otu_table.py -i bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro.biom -o bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro.biom -n 1
+â€” 4248 OTUs
+## rarefaction value: 2150
+## only lose one sample (LUK.16S038) due to low read count and no replacemet available
+## remove duplicates, controls, mock, etc
+filter_samples_from_otu_table.py -i bact_tab_after_filtering_no_unassigned_no_chloro.biom -o bact_tab_after_filtering_no_unassigned_no_chloro_final_samples.biom --sample_id_fp bact_final_samples.txt
+filter_otus_from_otu_table.py -i bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_final_samples.biom -o bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_final_samples.biom -n 1
+biom convert -i bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_final_samples.biom -o bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_final_samples.txt --header-key taxonomy -b
+## final bacteria OTU table
+bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_final_samples.biom
+### make tree of final OTUs
+filter_fasta.py -f bact_open_ref_picked_otus/rep_set.fna -o bact_final_OTUs.fna -b bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_final_samples.biom
+parallel_align_seqs_pynast.py -i bact_final_OTUs.fna -o bact_final_OTUs_pynast_aligned_seqs/ -O 6
+filter_alignment.py -o bact_final_OTUs_pynast_aligned_seqs/ -i bact_final_OTUs_pynast_aligned_seqs/bact_final_OTUs_aligned.fasta --allowed_gap_frac 0.999999 --threshold 3.0 --suppress_lane_mask_filter
+make_phylogeny.py -i bact_final_OTUs_pynast_aligned_seqs/bact_final_OTUs_aligned_pfiltered.fasta -o bact_final_OTUs.tre --root_method tree_method_default --tree_method fasttree
+
+########################## FUNGI ##########################
+â€” 10,641,764 reads up in
+sh script_for_split.sh
+***had to split up the fungal runs because full file too big for chimera checking***
+cat fung_slout_q20/slout_single_sample_q20_ITS[01]*/seqs.fna > final_demultiplexed_seqs_ITS_low.fasta
+cat fung_slout_q20/slout_single_sample_q20_ITS[234]*/seqs.fna > final_demultiplexed_seqs_ITS_high.fasta
+cat fung_slout_q20/slout_single_sample_q20_ITS*/seqs.fna > final_demultiplexed_seqs_ITS_all.fasta
+18778400 final_demultiplexed_seqs_ITS_all.fasta
+7603378 final_demultiplexed_seqs_ITS_low.fasta
+11175022 final_demultiplexed_seqs_ITS_high.fasta
+18778400
+â€” 9,389,200 after demultiplexing and quality control
+identify_chimeric_seqs.py -i final_demultiplexed_seqs_ITS_low.fasta -m usearch61 -o fung_usearch_checked_chimeras_low/ -r /users/rachel/Desktop/Mycology/reference_db/its_12_11_otus/rep_set/97_otus.fasta
+identify_chimeric_seqs.py -i final_demultiplexed_seqs_ITS_high.fasta -m usearch61 -o fung_usearch_checked_chimeras_high/ -r /users/rachel/Desktop/Mycology/reference_db/its_12_11_otus/rep_set/97_otus.fasta
+(11934 + 10180 = 22,114 chimeras)
+filter_fasta.py -f final_demultiplexed_seqs_ITS_all.fasta -o final_chimeric_rmv_seqs_ITS_step1.fasta -s fung_usearch_checked_chimeras_low/chimeras.txt -n
+filter_fasta.py -f final_chimeric_rmv_seqs_ITS_step1.fasta -o final_chimeric_rmv_seqs_ITS.fasta -s fung_usearch_checked_chimeras_high/chimeras.txt -n
+â€” 9,367,086 sequences after chimera checking
+pick_open_reference_otus.py -i final_chimeric_rmv_seqs_ITS.fasta -r /users/rachel/Desktop/Mycology/reference_db/its_12_11_otus/rep_set/97_otus.fasta -o fungi_open_ref_picked_otus --prefilter_percent_id 0.0 --suppress_align_and_tree -a -O 6 --percent_subsample 1
+â€” 9,359,161 sequences in biom table
+## tried several ways of assigning taxonomy
+blastn -db /Users/rachel/Desktop/Mycology/reference_db/bokulich.filtered.unite.its.db/bokulich.filtered.units.its.db.align/Bokulich -query fungi_open_ref_picked_otus/rep_set.fna -max_target_seqs 1 -out fung_BLAST_results_Bok.txt -outfmt "6 qseqid sseqid qlen length pident evalue"
+usearch_v8 -utax rep_set.fna -db /Users/rachel/Desktop/Mycology/reference_db/UTAX/unite_its1.fa -taxconfs /Users/rachel/Desktop/Mycology/reference_db/UTAX/its1.tc -tt /Users/rachel/Desktop/Mycology/reference_db/UTAX/unite.tt -utaxout fung_utax_results.txt
+assign_taxonomy.py -i fungi_open_ref_picked_otus/rep_set.fna -t /Users/rachel/Desktop/Mycology/reference_db/sh_qiime_release_02.03.2015/sh_taxonomy_qiime_ver7_97_02.03.2015.txt -r /Users/rachel/Desktop/Mycology/reference_db/sh_qiime_release_02.03.2015/sh_refs_qiime_ver7_97_02.03.2015.fasta -o fung_qiime_assigned_tax_rdp -m rdp
+## filter OTUs less than 0.001% of total sequences
+filter_otus_from_otu_table.py -i fungi_open_ref_picked_otus/otu_table_mc2.biom -o fung_otu_table_mc2_min00001.biom --min_count_fraction 0.00001
+â€” 9359161 93.59161
+â€” 2801 OTUs
+#### using the new taxonomy assignment
+##biom taxonomy to the biom file
+biom add-metadata -i fung_otu_table_mc2_min00001.biom -o fung_otu_table_mc2_min00001_w_rdp_tax.biom --observation-metadata-fp fung_qiime_assigned_tax_rdp/rep_set_tax_assignments_header.txt --sc-separated taxonomy
+biom convert -i fung_otu_table_mc2_min00001_w_rdp_tax.biom -o fung_otu_table_mc2_min00001_w_rdp_tax.txt --header-key taxonomy -b
+#no unassigned
+## remove duplicates, controls, mock, samples with too low read count
+filter_samples_from_otu_table.py -i fung_otu_table_mc2_min00001_w_rdp_tax.biom -o fung_otu_table_mc2_min00001_w_rdp_tax_final_samples.biom --sample_id_fp fung_final_samples.txt
+biom convert -i fung_otu_table_mc2_min00001_w_rdp_tax_final_samples.biom -o fung_otu_table_mc2_min00001_w_rdp_tax_final_samples.txt --header-key taxonomy -b
+biom summarize-table -i fung_otu_table_mc2_min00001_w_rdp_tax_final_samples.biom -o fung_otu_table_mc2_min00001_w_rdp_tax_final_samples_summary.txt
+## final fungal OTU table
+fung_otu_table_mc2_min00001_w_rdp_tax_final_samples.biom
+
+########## previous analysis attempts and some analysis within QIIME before moving to R#############
+##biom taxonomy to the biom file
+biom add-metadata -i fung_otu_table_mc2_min00001.biom -o fung_otu_table_mc2_min00001_w_tax.biom --observation-metadata-fp fung_min00001_tax.txt
+## looking at the unassigned sequences (N=1: New.ReferenceOTU12175) this OTU was junk and excluded
+filter_otus_from_otu_table.py -i fung_otu_table_mc2_min00001_w_tax.biom -o fung_otu_table_mc2_min00001_w_tax_no_unassigned.biom -e fung_unassigned_to_exclude.txt
+filter_otus_from_otu_table.py -i fung_otu_table_mc2_min00001_w_tax_no_unassigned.biom -o fung_otu_table_mc2_min00001_w_tax_no_unassigned.biom -n 1
+## rarefaction value: 2700 (because going lower only includes negative/duplicates)
+## lose 12 sample due to low read count and no replacemet available
+## remove duplicates, controls, mock, etc
+filter_samples_from_otu_table.py -i fung_otu_table_mc2_min00001_w_tax_no_unassigned.biom -o fung_otu_table_mc2_min00001_w_tax_no_unassigned_final_samples.biom --sample_id_fp fung_final_samples.txt
+## final fungal OTU table
+fung_otu_table_mc2_min00001_w_tax_no_unassigned_final_samples.biom
+
+########## community analyses###############
+## alpha richness across samples ##
+alpha_rarefaction.py -i bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_final_samples.biom -m metadata/bact_map_Bala_notation_.txt -o bact_alpha -a -t bact_open_ref_picked_otus/rep_set.tre -e 2150 -O 6 -p bact_params.txt
+compare_alpha_diversity.py -i bact_alpha/alpha_div_collated/PD_whole_tree.txt -m metadata/bact_map_Bala_notation.txt -o bact_alpha/alpha_div_collated/PD/ -c FARMER,damage_cmla,4_factor,residence,cohort,area_type,construction_year_cate,building_type,heating,smoking_indoors,cat,dog,familynum,siblings,floor_type,wood,mother_stable,damage_house,odor_indoors,mold_indoors,damagekitch,moldkitch,damagelivr,moldlivr,damagecbedr,moldcbedr,damagebathr,moldbathr,damageotheris,moldotheris
+compare_alpha_diversity.py -i bact_alpha/alpha_div_collated/chao1.txt -m metadata/bact_map_Bala_notation.txt -o bact_alpha/alpha_div_collated/chao/ -c FARMER,damage_cmla,4_factor,residence,cohort,area_type,construction_year_cate,building_type,heating,smoking_indoors,cat,dog,familynum,siblings,floor_type,wood,mother_stable,damage_house,odor_indoors,mold_indoors,damagekitch,moldkitch,damagelivr,moldlivr,damagecbedr,moldcbedr,damagebathr,moldbathr,damageotheris,moldotheris
+alpha_rarefaction.py -i fung_otu_table_mc2_min00001_w_tax_no_unassigned_final_samples.biom -p fung_params.txt -m metadata/fung_map_Bala_notation.txt -o fung_alpha -a -e 2700 -O 6
+compare_alpha_diversity.py -i fung_alpha/alpha_div_collated/chao1.txt -m metadata/fung_map_Bala_notation.txt -o fung_alpha/alpha_div_collated/chao/ -c FARMER,damage_cmla,4_factor,residence,cohort,area_type,construction_year_cate,building_type,heating,smoking_indoors,cat,dog,familynum,siblings,floor_type,wood,mother_stable,damage_house,odor_indoors,mold_indoors,damagekitch,moldkitch,damagelivr,moldlivr,damagecbedr,moldcbedr,damagebathr,moldbathr,damageotheris,moldotheris
+## taxa summaries ##
+summarize_taxa.py -i bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_final_samples.biom -o bact_tax/
+summarize_taxa.py -i bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_final_samples.biom -o bact_tax_abs/ -a
+summarize_taxa.py -i fung_otu_table_mc2_min00001_w_rdp_tax_final_samples.biom -o fung_tax_rdp_abs/ -a
+
+########## community analyses with updated factors ###############
+alpha_rarefaction.py -i bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_final_samples.biom -m metadata/bact_map_Bala_notation_22415.txt -o bact_alpha_22415 -a -t bact_open_ref_picked_otus/rep_set.tre -e 2150 -O 6 -p bact_params.txt
+compare_alpha_diversity.py -i bact_alpha_22415/alpha_div_collated/PD_whole_tree.txt -m metadata/bact_map_Bala_notation_22415.txt -o bact_alpha_22415/alpha_div_collated/PD/ -c animal_species_SUM_cate2,R78new_cate,R79new_cate,R80A2new_cate2,R80B2new_cate,cow_bovine_cate,brush_cow,animal_feeding,I48Anew,vacuumed
+compare_alpha_diversity.py -i bact_alpha_22415/alpha_div_collated/chao1.txt -m metadata/bact_map_Bala_notation_22415.txt -o bact_alpha_22415/alpha_div_collated/Chao/ -c animal_species_SUM_cate2,R78new_cate,R79new_cate,R80A2new_cate2,R80B2new_cate,cow_bovine_cate,brush_cow,animal_feeding,I48Anew,vacuumed
+alpha_rarefaction.py -i fung_otu_table_mc2_min00001_w_tax_no_unassigned_final_samples.biom -p fung_params.txt -m metadata/fung_map_Bala_notation_22415.txt -o fung_alpha_22415 -a -e 2700 -O 6
+compare_alpha_diversity.py -i fung_alpha_22415/alpha_div_collated/chao1.txt -m metadata/fung_map_Bala_notation_22415.txt -o fung_alpha_22415/alpha_div_collated/Chao/ -c animal_species_SUM_cate2,R78new_cate,R79new_cate,R80A2new_cate2,R80B2new_cate,cow_bovine_cate,brush_cow,animal_feeding,I48Anew,vacuumed
+
+########## procrustes: fungi and bacteria ###############
+filter_samples_from_otu_table.py -i bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_final_samples.biom -o procrustes_bact_fung/bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_final_samples_common.biom --sample_id_fp procrustes_bact_fung/bact_common.txt
+filter_samples_from_otu_table.py -i fung_otu_table_mc2_min00001_w_tax_no_unassigned_final_samples.biom -o procrustes_bact_fung/fung_otu_table_mc2_min00001_w_tax_no_unassigned_final_samples_common.biom --sample_id_fp procrustes_bact_fung/fung_common.txt
+beta_diversity_through_plots.py -i procrustes_bact_fung/bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_final_samples_common.biom -e 2150 -o procrustes_bact_fung/bact_beta/ -t bact_open_ref_picked_otus/rep_set.tre -m metadata/bact_map_Bala_notation_22415.txt -aO8 -p bact_params.txt
+beta_diversity_through_plots.py -i procrustes_bact_fung/fung_otu_table_mc2_min00001_w_tax_no_unassigned_final_samples_common.biom -e 2700 -o procrustes_bact_fung/fung_beta/ -m metadata/fung_map_Bala_notation_22415.txt -aO8 -p fung_params.txt
+transform_coordinate_matrices.py -i procrustes_bact_fung/bact_beta/,procrustes_bact_fung/fung_beta/ -s procrustes_bact_fung/sample_name_map.txt -r 100 -o procrustes_bact_fung/bact_vs_fungi/
+make_emperor.py -c -i procrustes_bact_fung/bact_vs_fungi/ -o procrustes_bact_fung/bact_vs_fungi/plots/ -m pro
+
+########## procrustes: duplicates in fungi and bacteria ###############
+filter_samples_from_otu_table.py -i bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro.biom -o procrustes_duplicates/bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_DupA.biom --sample_id_fp procrustes_duplicates/DupA_bact.txt
+filter_samples_from_otu_table.py -i bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro.biom -o procrustes_duplicates/bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_DupB.biom --sample_id_fp procrustes_duplicates/DupB_bact.txt
+filter_otus_from_otu_table.py -i procrustes_duplicates/bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_DupA.biom -o procrustes_duplicates/bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_DupA.biom -n 1
+filter_otus_from_otu_table.py -i procrustes_duplicates/bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_DupB.biom -o procrustes_duplicates/bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_DupB.biom -n 1
+biom summarize-table -i procrustes_duplicates/bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_DupA.biom -o procrustes_duplicates/bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_DupA_summary.txt
+biom summarize-table -i procrustes_duplicates/bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_DupB.biom -o procrustes_duplicates/
+bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_DupB_summary.txt
+beta_diversity_through_plots.py -i procrustes_duplicates/bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_DupA.biom -e 1880 -o procrustes_duplicates/bact_DupA_beta/ -t bact_open_ref_picked_otus/rep_set.tre -m metadata/bact_map_Bala_notation_22415.txt -aO8 -p bact_params.txt
+beta_diversity_through_plots.py -i procrustes_duplicates/bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_DupB.biom -e 1880 -o procrustes_duplicates/bact_DupB_beta/ -t bact_open_ref_picked_otus/rep_set.tre -m metadata/bact_map_Bala_notation_22415.txt -aO8 -p bact_params.txt
+transform_coordinate_matrices.py -i procrustes_duplicates/bact_DupA_beta/unweighted_unifrac_pc.txt,procrustes_duplicates/bact_DupB_beta/unweighted_unifrac_pc_amended.txt -o procrustes_duplicates/bact_procrustes_output -r 1000
+make_emperor.py -c -i procrustes_duplicates/bact_procrustes_output/ -o procrustes_duplicates/bact_procrustes_output/plots/ -m metadata/bact_map_Bala_notation_22415.txt
+filter_samples_from_otu_table.py -i fung_otu_table_mc2_min00001_w_tax_no_unassigned.biom -o procrustes_duplicates/fung_otu_table_mc2_min00001_w_tax_no_unassigned_DupA.biom --sample_id_fp procrustes_duplicates/DupA_fungi.txt
+filter_samples_from_otu_table.py -i fung_otu_table_mc2_min00001_w_tax_no_unassigned.biom -o procrustes_duplicates/fung_otu_table_mc2_min00001_w_tax_no_unassigned_DupB.biom --sample_id_fp procrustes_duplicates/DupB_fungi.txt
+filter_otus_from_otu_table.py -i procrustes_duplicates/fung_otu_table_mc2_min00001_w_tax_no_unassigned_DupA.biom -o procrustes_duplicates/fung_otu_table_mc2_min00001_w_tax_no_unassigned_DupA.biom -n 1
+filter_otus_from_otu_table.py -i procrustes_duplicates/fung_otu_table_mc2_min00001_w_tax_no_unassigned_DupB.biom -o procrustes_duplicates/fung_otu_table_mc2_min00001_w_tax_no_unassigned_DupB.biom -n 1
+biom summarize-table -i procrustes_duplicates/fung_otu_table_mc2_min00001_w_tax_no_unassigned_DupA.biom -o procrustes_duplicates/fung_otu_table_mc2_min00001_w_tax_no_unassigned_DupA_summary.txt
+biom summarize-table -i procrustes_duplicates/fung_otu_table_mc2_min00001_w_tax_no_unassigned_DupB.biom -o procrustes_duplicates/fung_otu_table_mc2_min00001_w_tax_no_unassigned_DupB_summary.txt
+beta_diversity_through_plots.py -i procrustes_duplicates/fung_otu_table_mc2_min00001_w_tax_no_unassigned_DupA.biom -e 2700 -o procrustes_duplicates/fung_DupA_beta/ -m metadata/fung_map_Bala_notation_22415.txt -aO8 -p fung_params.txt
+beta_diversity_through_plots.py -i procrustes_duplicates/fung_otu_table_mc2_min00001_w_tax_no_unassigned_DupB.biom -e 2700 -o procrustes_duplicates/fung_DupB_beta/ -m metadata/fung_map_Bala_notation_22415.txt -aO8 -p fung_params.txt
+transform_coordinate_matrices.py -i procrustes_duplicates/fung_DupA_beta/bray_curtis_pc.txt,procrustes_duplicates/fung_DupB_beta/bray_curtis_pc_amended.txt -o procrustes_duplicates/fung_procrustes_output -r 1000
+make_emperor.py -c -i procrustes_duplicates/fung_procrustes_output/ -o procrustes_duplicates/fung_procrustes_output/plots/ -m metadata/fung_map_Bala_notation_22415.txt
+
+########## looking at duplicates in the context of all samples
+beta_diversity_through_plots.py -i bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro.biom -o bact_beta_duplicates/ -e 1880 -t bact_open_ref_picked_otus/rep_set.tre -m metadata/bact_map_Bala_notation_22415.txt -aO8 -p bact_params.txt
+filter_samples_from_otu_table.py -i bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro.biom -o bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_nomock.biom -m metadata/bact_map_Bala_notation_22415.txt -s 'type:sample'
+beta_diversity_through_plots.py -i bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_nomock.biom -o bact_beta_duplicates/nomock/ -e 1880 -t bact_open_ref_picked_otus/rep_set.tre -m metadata/bact_map_Bala_notation_22415.txt -aO8 -p bact_params.txt
+beta_diversity_through_plots.py -i fung_otu_table_mc2_min00001_w_tax_no_unassigned.biom -o fung_beta_duplicates/ -e 2700 m metadata/fung_map_Bala_notation_22415.txt -aO8 -p fung_params.txt
+biom convert -i bact_tax_abs/bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_final_samples_L6.biom -o bact_tax_abs/bact_otu_table_mc2_w_tax_no_pynast_failures_min00001_nochloro_final_samples_L6_abs.txt --header-key taxonomy --to-tsv --table-type="OTU table"
+
+################### R codes for PCoA and Generalized UniFrac calculations #####################
+library(ape)
+library(phangorn)
+library(phyloseq)
+library(GUniFrac)
+PcoaWithOutputs <- function(distances, prefix="Sample", suffix="", outfolder=getwd()) {
+pcoa <- pcoa(distances)
+# Making the output file names
+if (suffix == "") {
+pcoa.value.file <- paste(outfolder, "/", prefix, "_PCoA_values.txt", sep="")
+eigenfile <- paste(outfolder, "/", prefix, "_PCoA_eigenvalues.txt", sep="")
+} else {
+pcoa.value.file <- paste(outfolder, "/", prefix, "_PCoA_values_", suffix, ".txt", sep="")
+eigenfile <- paste(outfolder, "/", prefix, "_PCoA_eigenvalues_", suffix, ".txt", sep="")
+}
+# Saving the pcoa values
+for.save <- as.data.frame(pcoa$vectors)
+for.save[["ID"]] <- rownames(for.save)
+for.save <- for.save[, c(dim(for.save)[2], 1:dim(for.save)[2]-1)]
+write.table(for.save, file=pcoa.value.file, sep="\t", quote=F, row.names=F)
+# Saving eigenvalues
+neg.eigensum <- sum(pcoa$value$Eigenvalues)
+nonneg.eigensum <- sum(pcoa$value$Eigenvalues[which(pcoa$value$Eigenvalues >= 0)])
+max.eigen <- max(pcoa$value$Eigenvalues)
+min.eigen <- min(pcoa$value$Eigenvalues)
+neg.percent <- round((pcoa$value$Eigenvalues / neg.eigensum) * 100, digits = 3)
+nonneg.percent <- round((pcoa$value$Eigenvalues / nonneg.eigensum) * 100, digits = 3)
+nonneg.percent[which(nonneg.percent < 0)] <- 0.000
+writerow <- paste("Eigenvalue min / max: ", min.eigen, " / ", max.eigen, sep="")
+write(writerow, file=eigenfile, append=F)
+writerow <- paste("Sum of all eigenvalues: ", round(neg.eigensum, digits=6), sep="")
+write(writerow, file=eigenfile, append=T)
+writerow <- paste("Sum of all eigenvalues (negatives as 0): ", round(nonneg.eigensum, digits=6), sep="")
+write(writerow, file=eigenfile, append=T)
+writerow <- "Eigenvalues (pos & neg): "
+write(writerow, file=eigenfile, append=T)
+writerow <- paste(pcoa$value$Eigenvalues, collapse="\t")
+write(writerow, file=eigenfile, append=T)
+writerow <- "Percents (Negatives as negatives): "
+write(writerow, file=eigenfile, append=T)
+writerow <- paste(paste(neg.percent, " %", sep=""), collapse="\t")
+write(writerow, file=eigenfile, append=T)
+writerow <- "Percents (Negatives as 0): "
+write(writerow, file=eigenfile, append=T)
+writerow <- paste(paste(nonneg.percent, " %", sep=""), collapse="\t")
+write(writerow, file=eigenfile, append=T)
+return(pcoa)
+}
+setwd("/PATH/FOR/RESULTS")
+# Using phylotree from qiime and rooting it with midpoint rooting
+lumi.phylotree <- read.tree("/path/to/otu/phylo/tree.tre")
+rooted.phylotree <- midpoint(lumi.phylotree)
+# Using unrarefied but filtered OTU-table
+lumi.bac <- read.table("/path/to/text/version/of/filtered/otu/data", comment.char="", skip=1, sep="\t", header=T)
+# Removing the taxonomony data from the end
+taxonomies <- lumi.bac[, dim(lumi.bac)[2]]
+lumi.bac <- lumi.bac[, -dim(lumi.bac)[2]]
+# Putting otu id as rowname
+row.names(lumi.bac) <- lumi.bac[[1]]
+lumi.bac <- lumi.bac[, -1]
+# Reading sample data (for cohort info)
+sample.data <- read.table("/path/to/sample/additional/data", sep="\t", header=T, stringsAsFactors=F)
+# Filtering to only LUKAS1 cohort samples
+lukas1.columns <- match(subset(sample.data, sample.data[["cohort"]] == 1)[["ID"]], colnames(lumi.bac))
+lukas1.data <- lumi.bac[, lukas1.columns]
+# Only lukas1 sample GUniFracs
+lukas1.gfrac <- GUniFrac(t(lukas1.data), rooted.phylotree, alpha=c(0, 1))
+# All Lumi sample GUniFracs
+lumi.gfrac <- GUniFrac(t(lumi.bac), rooted.phylotree, alpha=c(0, 1))
+# Calculating pcoas and saving them to files for LUKAS1 data
+lukas1.gfrac0.pcoa <- PcoaWithOutputs(lukas1.gfrac[[1]][, , 1], prefix="Generalized_UniFrac_alpha0", suffix="LUKAS1")
+lukas1.gfrac1.pcoa <- PcoaWithOutputs(lukas1.gfrac[[1]][, , 2], prefix="Generalized_UniFrac_alpha1", suffix="LUKAS1")
+# Calculating pcoas and saving them to files for all LUMI data
+lumi.gfrac0.pcoa <- PcoaWithOutputs(lumi.gfrac[[1]][, , 1], prefix="Generalized_UniFrac_alpha0", suffix="LUMI")
+lumi.gfrac1.pcoa <- PcoaWithOutputs(lumi.gfrac[[1]][, , 2], prefix="Generalized_UniFrac_alpha1", suffix="LUMI")
+
+################### SAScodes for calculation of FaRMI #####################
+/* ------------------------------------------------------------------- Code generated by SAS Task
+Generated on: Thursday, October 04, 2018 at 10:16:10 AM By task: Logistic Regression combined LUKAS gen UniFrac PCoA alpha=1
+Input Data: Local:WORK.LUKAS1_GEN_UNIF Server: Local ------------------------------------------------------------------- */ ODS GRAPHICS ON;
+%_eg_conditional_dropds(WORK.PREDLOGREGPREDICTIONSLUKAS1_0003, WORK.TMP0TempTableAddtnlPredictData, WORK.SORTTempTableSorted); DATA WORK.TMP0TempTableAddtnlPredictData; SET /* LUKAS1 DATA ONLY*/ WORK.LUKAS1_GEN_UNIF(IN=__ORIG) /*LUKAS1 AND LUKAS2 DATA*/ WORK.QUERY_FOR_BACT_META_12052015_PK1; __FLAG=__ORIG; __DEP=FARMER; if not __FLAG then FARMER=.; RUN;
+/* ------------------------------------------------------------------- Sort data set WORK.TMP0TempTableAddtnlPredictData ------------------------------------------------------------------- */
+PROC SQL; CREATE VIEW WORK.SORTTempTableSorted AS SELECT * FROM WORK.TMP0TempTableAddtnlPredictData ; QUIT; TITLE; TITLE1 "Logistic Regression Results"; FOOTNOTE; FOOTNOTE1 "Generated by the SAS System (&_SASSERVERNAME, &SYSSCPL) on %TRIM(%QSYSFUNC(DATE(), NLDATE20.)) at %TRIM(%SYSFUNC(TIME(), TIMEAMPM12.))"; PROC LOGISTIC DATA=WORK.SORTTempTableSorted PLOTS(ONLY)=ALL ; MODEL FARMER (Event = '1')= /*FIRT FOUR PCoA AXES OF GENERALIZED UNIFRAC WITHIN LUKAS1 WITH ALPHA=1 (=weighted UniFrac)*/ PCoA1_LUKAS1_alpha1 PCoA2_LUKAS1_alpha1 PCoA3_LUKAS1_alpha1 PCoA4_LUKAS1_alpha1 / SELECTION=NONE LINK=LOGIT CLODDS=WALD ALPHA=0.05 ;
+OUTPUT OUT=WORK.PREDLOGREGPREDICTIONSLUKAS1_0003(LABEL="Logistic regression predictions and statistics for WORK.LUKAS1_GEN_UNIF" WHERE=(NOT __FLAG)) PREDPROBS=INDIVIDUAL; RUN; QUIT;
+DATA WORK.PREDLOGREGPREDICTIONSLUKAS1_0003; set WORK.PREDLOGREGPREDICTIONSLUKAS1_0003; FARMER=__DEP; _FROM_=put(__DEP,BEST1.); DROP __DEP; DROP __FLAG;
+RUN;
+/* ------------------------------------------------------------------- End of task code. ------------------------------------------------------------------- */ RUN; QUIT; %_eg_conditional_dropds(WORK.TMP0TempTableAddtnlPredictData, WORK.SORTTempTableSorted); TITLE; FOOTNOTE; ODS GRAPHICS OFF;
+FOOTNOTE1 "Generated by the SAS System (&_SASSERVERNAME, &SYSSCPL) on %TRIM(%QSYSFUNC(DATE(), NLDATE20.)) at %TRIM(%SYSFUNC(TIME(), TIMEAMPM12.))"; PROC LOGISTIC DATA=WORK.SORTTempTableSorted PLOTS(ONLY)=ALL ; MODEL FARMER (Event = '1')=A1_lukas_alpha1 A2_lukas_alpha1 A3_lukas_alpha1 / SELECTION=NONE LINK=LOGIT CLODDS=WALD ALPHA=0.05 ;
+OUTPUT OUT=WORK.PREDLOGREGPREDICTIONSLUKAS1_0003(LABEL="Logistic regression predictions and statistics for WORK.LUKAS1_GEN_UNIF" WHERE=(NOT __FLAG)) PREDPROBS=INDIVIDUAL; RUN; QUIT;
+DATA WORK.PREDLOGREGPREDICTIONSLUKAS1_0003; set WORK.PREDLOGREGPREDICTIONSLUKAS1_0003; FARMER=__DEP; _FROM_=put(__DEP,BEST1.); DROP __DEP; DROP __FLAG; RUN;
+/* ------------------------------------------------------------------- End of task code. ------------------------------------------------------------------- */ RUN; QUIT; %_eg_conditional_dropds(WORK.TMP0TempTableAddtnlPredictData, WORK.SORTTempTableSorted); TITLE; FOOTNOTE; ODS GRAPHICS OFF;
+
+################### Python codes for Random forest #####################
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# Module imports
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+from sklearn.cross_validation import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import confusion_matrix
+# Dataset used
+dataset = pd.read_csv('dataset_farmi_merged.csv',index_col=0,header=0)
+# Separating the OTU count data from the Farmer variable for both lukas1 and lukas2 datasets
+# (Farmer variable is the last column)
+luk1 = dataset.iloc[0:203, 0:3966]
+luk1_oc = dataset.iloc[0:203, -1].values
+luk2 = dataset.iloc[203:394, 0:3966]
+luk2_oc = dataset.iloc[203:394, -1].values
+# Splitting the dataset to training and test set
+luk1otu_train, luk1otu_test, luk1det_train, luk1det_test = train_test_split(luk1, luk1_oc, test_size = 0.25, random_state = 0)
+# Scaling the dataset so that it has 0 mean and unit variance (gaussian distribution)
+# Using luk1otu scaling as the base
+sc = StandardScaler()
+luk1otu_scaled_train = sc.fit_transform(luk1otu_train)
+luk1otu_scaled_test = sc.transform(luk1otu_test)
+luk2otu_scaled = sc.transform(luk2)
+luk1otu_scaled = sc.transform(luk1)
+# Training the random forest classifier
+classifier=RandomForestClassifier(n_estimators=1000,criterion='entropy',random_state=0)
+classifier.fit(luk1otu_scaled_train, luk1det_train)
+# Making a prediction for the test set
+luk1test_pred = classifier.predict(luk1otu_scaled_test)
+# Making a confusion matrix from the test set to evaluate the accuracy of the classifier
+luk1_cm = confusion_matrix(luk1det_test, luk1test_pred)
+luk1_cm_df = pd.DataFrame(luk1_cm)
+luk1_cm_df.index = ['pred_0', 'pred_1']
+luk1_cm_df.columns = ['true_0', 'true_1']
+# Getting the importance of each OTU in the classifier
+importance = classifier.feature_importances_
+importance_df = pd.DataFrame(importance, index=luk1.columns,columns=["Importance"])
+# Making a prediction for lukas2 dataset
+luk2_pred = classifier.predict(luk2otu_scaled)
+# Making a confusion matrix for luk2 data (since we do have farmer info for it)
+luk2_cm = confusion_matrix(luk2_oc, luk2_pred)
+luk2_cm_df = pd.DataFrame(luk2_cm)
+luk2_cm_df.index = ['pred_0', 'pred_1']
+luk2_cm_df.columns = ['true_0', 'true_1']
+# Getting class probabilities for the lukas1 and luk2
+luk1_prob = classifier.predict_proba(luk1otu_scaled)
+luk1_prob = pd.DataFrame(luk1_prob)
+luk1_prob.index = luk1.index
+luk2_prob = classifier.predict_proba(luk2otu_scaled)
+luk2_prob = pd.DataFrame(luk2_prob)
+luk2_prob.index = luk2.index
+# Saving the results to files
+importance_df.to_csv(r'RandomForest_importance_of_taxa.txt', header=1, index=1, mode='w', sep='\t')
+luk2_cm_df.to_csv(r'RandomForest_LUK2_Confusion_matrix.txt', header=1, index=1, mode='w', sep='\t')
+luk1_cm_df.to_csv(r'RandomForest_LUK1test_Confusion_matrix.txt', header=1, index=1, mode='w', sep='\t')
+luk1_prob.to_csv(r'RandomForest_LUK1_Probabilities.txt', header=1, index=1, mode='w', sep='\t')
+luk2_prob.to_csv(r'RandomForest_LUK2_Probabilities.txt', header=1, index=1, mode='w', sep='\t')
